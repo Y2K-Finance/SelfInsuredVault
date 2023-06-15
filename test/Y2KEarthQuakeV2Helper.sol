@@ -14,31 +14,29 @@ import {Y2KEarthquakeV2InsuranceProvider} from "../src/providers/Y2KEarthquakeV2
 contract Y2KEarthQuakeV2Helper is Helper {
     using FixedPointMathLib for uint256;
 
-    VaultFactoryV2 public factory;
-    ControllerPeggedAssetV2 public controller;
-    Y2KEarthquakeV2InsuranceProvider public insuranceProvider;
-
-    uint16 public fee = 50; // 0.5%
+    VaultFactoryV2 public factoryV2;
+    ControllerPeggedAssetV2 public controllerV2;
+    Y2KEarthquakeV2InsuranceProvider public insuranceProviderV2;
 
     function setUp() public virtual {
         TimeLock timelock = new TimeLock(ADMIN);
 
-        factory = new VaultFactoryV2(WETH, TREASURY, address(timelock));
+        factoryV2 = new VaultFactoryV2(WETH, TREASURY, address(timelock));
 
-        controller = new ControllerPeggedAssetV2(
-            address(factory),
+        controllerV2 = new ControllerPeggedAssetV2(
+            address(factoryV2),
             ARBITRUM_SEQUENCER,
             TREASURY
         );
 
-        insuranceProvider = new Y2KEarthquakeV2InsuranceProvider(
-            address(factory)
+        insuranceProviderV2 = new Y2KEarthquakeV2InsuranceProvider(
+            address(factoryV2)
         );
 
-        factory.whitelistController(address(controller));
+        factoryV2.whitelistController(address(controllerV2));
     }
 
-    function createEndEpochMarket(
+    function createEndEpochMarketV2(
         uint40 begin,
         uint40 end
     )
@@ -56,7 +54,7 @@ contract Y2KEarthQuakeV2Helper is Helper {
         string memory name = string("USD Coin");
         string memory symbol = string("USDC");
 
-        (premium, collateral, marketId) = factory.createNewMarket(
+        (premium, collateral, marketId) = factoryV2.createNewMarket(
             VaultFactoryV2.MarketConfigurationCalldata(
                 address(0x11111),
                 strike,
@@ -64,14 +62,14 @@ contract Y2KEarthQuakeV2Helper is Helper {
                 WETH,
                 name,
                 symbol,
-                address(controller)
+                address(controllerV2)
             )
         );
 
-        (epochId, ) = factory.createEpoch(marketId, begin, end, fee);
+        (epochId, ) = factoryV2.createEpoch(marketId, begin, end, fee);
     }
 
-    function createDepegMarket(
+    function createDepegMarketV2(
         uint40 begin,
         uint40 end
     )
@@ -83,13 +81,12 @@ contract Y2KEarthQuakeV2Helper is Helper {
             uint256 epochId
         )
     {
-        //create end epoch market
+        //create depeg market
         string memory name = string("USD Coin");
         string memory symbol = string("USDC");
 
-        //create depeg market
         uint256 depegStrike = uint256(2 ether);
-        (premium, collateral, marketId) = factory.createNewMarket(
+        (premium, collateral, marketId) = factoryV2.createNewMarket(
             VaultFactoryV2.MarketConfigurationCalldata(
                 USDC_TOKEN,
                 depegStrike,
@@ -97,15 +94,15 @@ contract Y2KEarthQuakeV2Helper is Helper {
                 WETH,
                 name,
                 symbol,
-                address(controller)
+                address(controllerV2)
             )
         );
 
         //create epoch for depeg
-        (epochId, ) = factory.createEpoch(marketId, begin, end, fee);
+        (epochId, ) = factoryV2.createEpoch(marketId, begin, end, fee);
     }
 
-    function helperCalculateFeeAdjustedValue(
+    function helperCalculateFeeAdjustedValueV2(
         uint256 amount
     ) internal view returns (uint256) {
         return amount - amount.mulDivUp(fee, 10000);

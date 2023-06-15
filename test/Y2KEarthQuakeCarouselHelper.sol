@@ -25,8 +25,6 @@ contract Y2KEarthQuakeCarouselHelper is Helper {
     uint256 premiumEmissions = 1000 ether;
     uint256 collatEmissions = 100 ether;
 
-    uint16 public feeCarousel = 50; // 0.5%
-
     function setUp() public virtual {
         TimeLock timelock = new TimeLock(ADMIN);
 
@@ -91,7 +89,7 @@ contract Y2KEarthQuakeCarouselHelper is Helper {
 
         // fund treasury
         deal(emissionsToken, TREASURY, 5000 ether, true);
-        // approve emissions token to factory
+        // approve emissions token to factoryV2
         vm.startPrank(TREASURY);
         MintableToken(emissionsToken).approve(
             address(carouselFactory),
@@ -103,7 +101,7 @@ contract Y2KEarthQuakeCarouselHelper is Helper {
             marketId,
             begin,
             end,
-            feeCarousel,
+            fee,
             premiumEmissions,
             collatEmissions
         );
@@ -112,6 +110,6 @@ contract Y2KEarthQuakeCarouselHelper is Helper {
     function carouselHelperCalculateFeeAdjustedValue(
         uint256 amount
     ) internal view returns (uint256) {
-        return amount - amount.mulDivUp(feeCarousel, 10000);
+        return amount - amount.mulDivUp(fee, 10000);
     }
 }

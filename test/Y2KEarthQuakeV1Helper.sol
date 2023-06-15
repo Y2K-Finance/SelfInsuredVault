@@ -17,8 +17,6 @@ contract Y2KEarthQuakeV1Helper is Helper {
     Controller public controllerV1;
     Y2KEarthquakeV1InsuranceProvider public insuranceProviderV1;
 
-    uint16 public feeV1 = 50; // 0.5%
-
     function setUp() public virtual {
         TimeLock timelock = new TimeLock(ADMIN);
 
@@ -50,7 +48,7 @@ contract Y2KEarthQuakeV1Helper is Helper {
         string memory name = string("USD Coin");
 
         (premium, collateral) = factoryV1.createNewMarket(
-            feeV1,
+            fee,
             WETH,
             strike,
             begin,
@@ -62,18 +60,18 @@ contract Y2KEarthQuakeV1Helper is Helper {
         epochId = end;
     }
 
-    function createEpoch(
+    function createEpochV1(
         uint256 marketId,
         uint40 begin,
         uint40 end
     ) public returns (uint256 epochId) {
-        factoryV1.deployMoreAssets(marketId, begin, end, feeV1);
+        factoryV1.deployMoreAssets(marketId, begin, end, fee);
         epochId = end;
     }
 
     function helperCalculateFeeAdjustedValueV1(
         uint256 amount
     ) internal view returns (uint256) {
-        return amount - amount.mulDivUp(feeV1, 1000);
+        return amount - amount.mulDivUp(fee, 1000);
     }
 }

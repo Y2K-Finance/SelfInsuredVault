@@ -5,9 +5,7 @@ import "forge-std/console.sol";
 
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 
-import {Y2KEarthQuakeV1Helper, Vault} from "../Y2KEarthQuakeV1Helper.sol";
-import {Y2KEarthQuakeV2Helper, IWETH, VaultV2} from "../Y2KEarthQuakeV2Helper.sol";
-import {Y2KEarthQuakeCarouselHelper, Carousel} from "../Y2KEarthQuakeCarouselHelper.sol";
+import {Y2KEarthQuakeHelper, IWETH, Vault, VaultV2, Carousel} from "../Y2KEarthQuakeHelper.sol";
 
 import {SelfInsuredVault} from "../../src/vaults/SelfInsuredVault.sol";
 import {StargateLPYieldSource} from "../../src/sources/StargateLPYieldSource.sol";
@@ -16,20 +14,15 @@ import {IInsuranceProvider} from "../../src/interfaces/IInsuranceProvider.sol";
 import {IYieldSource} from "../../src/interfaces/IYieldSource.sol";
 import {ILPStaking} from "../../src/interfaces/stargate/ILPStaking.sol";
 
-contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEarthQuakeCarouselHelper {
+contract EarthquakeSIVTest is Y2KEarthQuakeHelper {
     uint256 public constant LP_DEPOSIT_AMOUNT = 1000000000;
     uint256 public constant WETH_DEPOSIT_AMOUNT = 10 ether;
 
     address public siv;
     address public yieldSource;
 
-    function setUp()
-        public
-        override(Y2KEarthQuakeV1Helper, Y2KEarthQuakeV2Helper, Y2KEarthQuakeCarouselHelper)
-    {
-        Y2KEarthQuakeV1Helper.setUp();
-        Y2KEarthQuakeV2Helper.setUp();
-        Y2KEarthQuakeCarouselHelper.setUp();
+    function setUp() public override {
+        Y2KEarthQuakeHelper.setUp();
 
         yieldSource = address(
             new StargateLPYieldSource(
@@ -55,7 +48,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
             address collateral,
             uint256 marketId,
             uint256 epochId
-        ) = Y2KEarthQuakeV1Helper.createEndEpochMarketV1(begin, end);
+        ) = Y2KEarthQuakeHelper.createEndEpochMarketV1(begin, end);
 
         SelfInsuredVault(siv).addMarket(
             address(insuranceProviderV1),
@@ -177,7 +170,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
             address collateral,
             uint256 marketId,
             uint256 epochId
-        ) = Y2KEarthQuakeV2Helper.createEndEpochMarketV2(begin, end);
+        ) = Y2KEarthQuakeHelper.createEndEpochMarketV2(begin, end);
 
         SelfInsuredVault(siv).addMarket(
             address(insuranceProviderV2),
@@ -287,7 +280,10 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
             address collateral,
             uint256 marketId,
             uint256 epochId
-        ) = Y2KEarthQuakeCarouselHelper.createEndEpochMarketCarousel(begin, end);
+        ) = Y2KEarthQuakeHelper.createEndEpochMarketCarousel(
+                begin,
+                end
+            );
 
         SelfInsuredVault(siv).addMarket(
             address(carouselInsuranceProvider),
@@ -332,7 +328,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
         assertEq(IERC20(WETH).balanceOf(siv), 0);
 
         // check deposit balances
-        uint256 premiumShares =  Carousel(premium).balanceOf(USER, epochId);
+        uint256 premiumShares = Carousel(premium).balanceOf(USER, epochId);
         uint256 collateralShares = Carousel(collateral).balanceOf(siv, epochId);
 
         /******************** End Epoch ************************/
@@ -344,7 +340,10 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
         carouselController.triggerEndEpoch(marketId, epochId);
 
         // check vault balances on withdraw
-        uint256 amountAfterFee = Carousel(collateral).previewWithdraw(epochId, collateralShares);
+        uint256 amountAfterFee = Carousel(collateral).previewWithdraw(
+            epochId,
+            collateralShares
+        );
 
         /******************** Claim Payout ************************/
 
@@ -395,7 +394,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
      *   v1:    |------ epoch 1 ------|------ epoch 2 ------|
      *   v2:                          |------ epoch 2 ------|
      *   users: |------  USER  -------|---- USER, USER2 ----|
-     * 
+     *
      * Test flow
      *   1. Create v1 market with epoch 1
      *   2. `USER` deposits
@@ -417,7 +416,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
             address collateralV1,
             uint256 marketIdV1,
             uint256 epochId1V1
-        ) = Y2KEarthQuakeV1Helper.createEndEpochMarketV1(begin1, end1);
+        ) = Y2KEarthQuakeHelper.createEndEpochMarketV1(begin1, end1);
         SelfInsuredVault(siv).addMarket(
             address(insuranceProviderV1),
             marketIdV1,
@@ -472,7 +471,10 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
         );
         // some left due to rounding
         assertApproxEqAbs(
-            Vault(collateralV1).previewWithdraw(epochId1V1, SIV_WETH_AMOUNT1 / 2),
+            Vault(collateralV1).previewWithdraw(
+                epochId1V1,
+                SIV_WETH_AMOUNT1 / 2
+            ),
             SIV_WETH_AMOUNT1,
             2
         );
@@ -489,7 +491,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
 
         /******************** Add new markets ************************/
 
-        uint256 epochId2V1 = Y2KEarthQuakeV1Helper.createEpochV1(
+        uint256 epochId2V1 = Y2KEarthQuakeHelper.createEpochV1(
             marketIdV1,
             begin2,
             end2
@@ -499,7 +501,7 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
             address collateralV2,
             uint256 marketIdV2,
             uint256 epochId2V2
-        ) = Y2KEarthQuakeV2Helper.createDepegMarketV2(begin2, end2);
+        ) = Y2KEarthQuakeHelper.createDepegMarketV2(begin2, end2);
         SelfInsuredVault(siv).addMarket(
             address(insuranceProviderV2),
             marketIdV2,
@@ -557,10 +559,13 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
         controllerV1.triggerEndEpoch(marketIdV1, epochId2V1);
 
         // check vault balances on withdraw
-        uint256 amountAfterFee = Y2KEarthQuakeV2Helper
+        uint256 amountAfterFee = Y2KEarthQuakeHelper
             .helperCalculateFeeAdjustedValueV2(SIV_WETH_AMOUNT2 / 4);
         assertApproxEqAbs(
-            VaultV2(premiumV2).previewWithdraw(epochId2V2, SIV_WETH_AMOUNT2 / 4),
+            VaultV2(premiumV2).previewWithdraw(
+                epochId2V2,
+                SIV_WETH_AMOUNT2 / 4
+            ),
             amountAfterFee,
             2
         );
@@ -586,12 +591,21 @@ contract EndToEndSIVTest is Y2KEarthQuakeV2Helper, Y2KEarthQuakeV1Helper, Y2KEar
         assertEq(SelfInsuredVault(siv).pendingPayouts(USER2), 0);
 
         // payout for market 1(v1), all for USER
-        uint256 payout1 = SIV_WETH_AMOUNT1 / 2 + Y2KEarthQuakeV1Helper.helperCalculateFeeAdjustedValueV1(SIV_WETH_AMOUNT1 / 2);
+        uint256 payout1 = SIV_WETH_AMOUNT1 /
+            2 +
+            Y2KEarthQuakeHelper.helperCalculateFeeAdjustedValueV1(
+                SIV_WETH_AMOUNT1 / 2
+            );
 
         // payout for market 2(v1), for both user
-        uint256 payout2V1 = SIV_WETH_AMOUNT2 / 4 + Y2KEarthQuakeV1Helper.helperCalculateFeeAdjustedValueV1(SIV_WETH_AMOUNT2 / 4);
+        uint256 payout2V1 = SIV_WETH_AMOUNT2 /
+            4 +
+            Y2KEarthQuakeHelper.helperCalculateFeeAdjustedValueV1(
+                SIV_WETH_AMOUNT2 / 4
+            );
         // payout for market 2(v2), for both user
-        uint256 payout2V2 = Y2KEarthQuakeV2Helper.helperCalculateFeeAdjustedValueV2(SIV_WETH_AMOUNT2 / 2);
+        uint256 payout2V2 = Y2KEarthQuakeHelper
+            .helperCalculateFeeAdjustedValueV2(SIV_WETH_AMOUNT2 / 2);
         // totla payout
         uint256 payout2 = payout2V1 + payout2V2;
 

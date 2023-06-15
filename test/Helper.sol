@@ -35,4 +35,7 @@ contract Helper is Test {
     uint256 public constant USER1_EMISSIONS_AFTER_WITHDRAW = 1096655439903230405190;
     uint256 public constant USER2_EMISSIONS_AFTER_WITHDRAW = 96655439903230405190;
     uint256 public constant USER_AMOUNT_AFTER_WITHDRAW = 13112658495821846450;
+
+    // fee
+    uint16 public fee = 50; // 0.5%
 }
