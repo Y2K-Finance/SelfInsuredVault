@@ -136,6 +136,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
      * @param _premiumWeight Weight of premium vault inside market
      * @param _collateralWeight Weight of collateral vault inside market
      */
+    // TODO: We will need to be able to remove markets in theory
     function addMarket(
         address _provider, // v1, v2
         uint256 _marketId,
