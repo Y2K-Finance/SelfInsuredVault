@@ -235,6 +235,9 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
             uint256 collateralAmount = (actualOut * market.collateralWeight) /
                 totalWeight;
             uint256 totalAmount = premiumAmount + collateralAmount;
+
+            // NOTE: There is a dual approve here - you could hold the funds in the selfInsuredVault and manage balances here too
+            // NOTE: This would mean the call could be directly to Earthquake via an interface or libary
             paymentToken.safeApprove(address(provider), totalAmount);
             provider.purchaseForNextEpoch(
                 market.marketId,
@@ -364,6 +367,11 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
 
         UserInfo storage user = userInfos[receiver];
         user.share += amount;
+
+        // TODO: This uses accPayoutPerShare - but if the vault has deployed funds then will this not be mismatched - might need to update logic to either: (1) update payoutWithPending, or (2) addQueue
+        // EXAMPLE: 100 ETH deployed to Vault with 10 ETH rewards but accPayoutPerShare not updated until claimPayout is executed
+        // NOTE: But claimPayout only adds when funds are withdrawn therefore if no funds are withdrawn i.e. vault is active then this depositor would partake in rewards
+        // NOTE: If this is the case then the user could front-run the rewards of every vault just before it closes
         user.payoutDebt += int256(
             (amount * accPayoutPerShare) / PRECISION_FACTOR
         );
@@ -383,6 +391,8 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
 
         claimVaults();
 
+        // NOTE: If the funds are deployed to the vault then this will fail - users will need to withdraw specifically in no-deployed times
+        // NOTE: This isn't a contract problem but UX wise it's a pain if you keep missing the withdraw period
         UserInfo storage user = userInfos[msg.sender];
         user.payoutDebt -= int256(
             (amount * accPayoutPerShare) / PRECISION_FACTOR
@@ -403,7 +413,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
 
         UserInfo storage user = userInfos[msg.sender];
 
-        // NOTE: shares held by the user multplied by accPayoutPerShare
+        // NOTE: shares held by the user multiplied by accPayoutPerShare
         int256 accPayout = int256(
             (user.share * accPayoutPerShare) / PRECISION_FACTOR
         );
