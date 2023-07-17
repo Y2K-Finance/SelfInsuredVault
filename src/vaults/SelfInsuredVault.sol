@@ -22,6 +22,13 @@ import {IInsuranceProvider} from "../interfaces/IInsuranceProvider.sol";
 
 // we assume all markets accept the same token
 
+// TODO: ERC4626 conversion
+// Lots of the accounting logic could be simplified with ERC4626 converted logic - the considerations to remember
+// ERC4626 uses one underlying so extra logic for emissions would be needed i.e. to enable claiming of emissions without unstaking insurance funds
+// ERC4626 has a precision exploit vector so scaling up the precision may need to be used --> check front-run and rounding down exploit info on ERC4626
+// ERC4646 would issue shares as of deposit time i.e. if a payout is about to be received then you may need to add a queue to prevent people from front-running the payout and getting paid
+// The queue would need to deploy funds to the vault after the claim has been made to ensure the account is correct
+
 /// @title Self Insured Vault(SIV) contract
 /// @author Y2K Finance
 /// @dev All function calls are currently implemented without side effects
@@ -129,6 +136,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
      * @param _premiumWeight Weight of premium vault inside market
      * @param _collateralWeight Weight of collateral vault inside market
      */
+    // TODO: We will need to be able to remove markets in theory
     function addMarket(
         address _provider, // v1, v2
         uint256 _marketId,
@@ -144,12 +152,15 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
         }
 
         // verify payment token of the market
-        address payToken = IInsuranceProvider(_provider).paymentToken(_marketId);
+        address payToken = IInsuranceProvider(_provider).paymentToken(
+            _marketId
+        );
         if (payToken != address(paymentToken)) revert InvalidPaymentToken();
 
         address[2] memory vaults = IInsuranceProvider(_provider).getVaults(
             _marketId
         );
+        // NOTE: If vault[0] equals address(0) we could assume vaults[1] will also be invalid?
         if (vaults[0] == address(0) || vaults[1] == address(0)) {
             revert MarketNotExists();
         }
@@ -169,6 +180,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
      * @param _premiumWeight new weight of premium vault
      * @param _collateralWeight new weight of collateral vault
      */
+    // NOTE: If the weight being used > 100 (equiv of 100%) then could this break logic?
     function setWeight(
         uint256 index,
         uint256 _premiumWeight,
@@ -187,29 +199,45 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
 
     /**
      * @notice Purchase Insurance
+     * @param slippage Slippage tolerance is input in basis e.g. 100 is 1%
      */
-    function purchaseInsuranceForNextEpoch() external onlyOwner {
+    function purchaseInsuranceForNextEpoch(
+        uint256 slippage
+    ) external onlyOwner {
         if (totalWeight == 0) return;
 
+        // fetches balance and pending stargate
         uint256 totalYield = yieldSource.pendingYield();
+        uint256 amountOutMin = totalYield - (totalYield * slippage) / 10_000;
+        // NOTE: claimAndConvert is onlyOwner so address(this) needs to be the owner
+        // NOTE: If only address this can call then in theory you can check inputs here to save gas e.g. errors of AddressZero() and AmountZero()
+
         (, uint256 actualOut) = yieldSource.claimAndConvert(
             address(paymentToken),
-            totalYield
+            totalYield,
+            amountOutMin
         );
 
         // Purchase insurance via Y2K
         for (uint256 i = 0; i < markets.length; i++) {
             MarketInfo memory market = markets[i];
             IInsuranceProvider provider = IInsuranceProvider(market.provider);
+            // NOTE: If the next epoch is not purchasable then this will revert i.e. no insurance could be provided
+            // TODO: This may need to be continue instead of revert if we want to prevent stuck funds OR we need to add a remove to the markets
             if (!provider.isNextEpochPurchasable(market.marketId)) {
                 revert NextEpochNotPurchasable();
             }
 
+            // NOTE: The actual out is always the return from the balance of yield source - what happens to the excess funds in this contract? If buying premium then lost but is there ever collateral side?
             uint256 premiumAmount = (actualOut * market.premiumWeight) /
                 totalWeight;
+            // NOTE: The actual out is always the return from the balance of yield source - what happens to the excess funds in this contract? If buying premium then lost but is there ever collateral side?
             uint256 collateralAmount = (actualOut * market.collateralWeight) /
                 totalWeight;
             uint256 totalAmount = premiumAmount + collateralAmount;
+
+            // NOTE: There is a dual approve here - you could hold the funds in the selfInsuredVault and manage balances here too
+            // NOTE: This would mean the call could be directly to Earthquake via an interface or libary
             paymentToken.safeApprove(address(provider), totalAmount);
             provider.purchaseForNextEpoch(
                 market.marketId,
@@ -240,6 +268,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
     /**
      * @notice Returns pending payouts of an insurance
      */
+    // NOTE: Doesn't this just return all payouts? i.e. both sides
     function pendingInsurancePayouts() public view returns (uint256 pending) {
         for (uint256 i = 0; i < markets.length; i++) {
             IInsuranceProvider provider = IInsuranceProvider(
@@ -272,12 +301,17 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
         uint256 newAccPayoutPerShare = accPayoutPerShare;
         uint256 totalShares = yieldSource.totalDeposit();
         if (totalShares != 0) {
+            // NOTE: Returns all payouts, not just one side
             uint256 newPayout = pendingInsurancePayouts();
+
+            // NOTE: Calculation the new payout by adding the totalPayout after precision
             newAccPayoutPerShare =
                 newAccPayoutPerShare +
                 (newPayout * PRECISION_FACTOR) /
                 totalShares;
         }
+
+        // NOTE: The pending is then the number of shares * newPayout / precision - payoutDebt
         pending = (int256(
             (info.share * newAccPayoutPerShare) / PRECISION_FACTOR
         ) - info.payoutDebt).toUint256();
@@ -320,14 +354,24 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
         claimVaults();
 
         depositToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        // NOTE: Why is the allowance being set to zero for the yieldSource? To prevent an exploit on the vault?
+        // NOTE: Does the yieldSource have the capacity/ logic to transferFrom yieldSource to an unknown address?
         if (depositToken.allowance(address(this), address(yieldSource)) != 0) {
             depositToken.safeApprove(address(yieldSource), 0);
         }
+        // NOTE: Only reason I can imagine the approve is being set to 0 then reset is if it's using USDT? Can't 100% remember exact issue but know the approve logic is odd
+        // NOTE: If this is the case then it would save gas to check if the depositToken == USDT_ADDRESS and if not skip the reset
         depositToken.safeApprove(address(yieldSource), amount);
         yieldSource.deposit(amount);
 
         UserInfo storage user = userInfos[receiver];
         user.share += amount;
+
+        // TODO: This uses accPayoutPerShare - but if the vault has deployed funds then will this not be mismatched - might need to update logic to either: (1) update payoutWithPending, or (2) addQueue
+        // EXAMPLE: 100 ETH deployed to Vault with 10 ETH rewards but accPayoutPerShare not updated until claimPayout is executed
+        // NOTE: But claimPayout only adds when funds are withdrawn therefore if no funds are withdrawn i.e. vault is active then this depositor would partake in rewards
+        // NOTE: If this is the case then the user could front-run the rewards of every vault just before it closes
         user.payoutDebt += int256(
             (amount * accPayoutPerShare) / PRECISION_FACTOR
         );
@@ -347,6 +391,8 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
 
         claimVaults();
 
+        // NOTE: If the funds are deployed to the vault then this will fail - users will need to withdraw specifically in no-deployed times
+        // NOTE: This isn't a contract problem but UX wise it's a pain if you keep missing the withdraw period
         UserInfo storage user = userInfos[msg.sender];
         user.payoutDebt -= int256(
             (amount * accPayoutPerShare) / PRECISION_FACTOR
@@ -366,10 +412,14 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
         claimVaults();
 
         UserInfo storage user = userInfos[msg.sender];
+
+        // NOTE: shares held by the user multiplied by accPayoutPerShare
         int256 accPayout = int256(
             (user.share * accPayoutPerShare) / PRECISION_FACTOR
         );
         uint256 pendingPayout = (accPayout - user.payoutDebt).toUint256();
+
+        // NOTE: payoutDebt is set to shares * accPayoutPerShare / precision
         user.payoutDebt = accPayout;
 
         if (pendingPayout == 0) return;
@@ -416,6 +466,7 @@ contract SelfInsuredVault is Ownable, ERC1155Holder, ReentrancyGuard {
             newPayout += provider.claimPayouts(markets[i].marketId);
         }
         if (totalShares != 0) {
+            // NOTE: This value is added to with the newPayout from claim * precision / totalShares
             accPayoutPerShare += (newPayout * PRECISION_FACTOR) / totalShares;
 
             if (isEmissionsEnabled()) {

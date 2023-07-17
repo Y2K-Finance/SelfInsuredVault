@@ -22,7 +22,8 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
     IVaultFactoryV2Extended public immutable vaultFactory;
 
     /// @notice Last claimed epoch index; Market Id => Epoch Index
-    mapping(uint256 => uint256) public nextEpochIndexToClaim;
+    mapping(address => mapping(uint256 => uint256))
+        public nextEpochIndexToClaim;
 
     /*//////////////////////////////////////////////////////////////
                                 CONSTRUCTOR
@@ -59,7 +60,9 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
      * @notice Returns vault addresses.
      * @param marketId Market Id
      */
-    function getVaults(uint256 marketId) public view returns (address[2] memory) {
+    function getVaults(
+        uint256 marketId
+    ) public view returns (address[2] memory) {
         return vaultFactory.getVaults(marketId);
     }
 
@@ -68,7 +71,9 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
      * @dev If epoch iteration takes long, then we can think of binary search
      * @param vault Earthquake vault
      */
-    function currentEpoch(IVaultV2Extended vault) public view returns (uint256) {
+    function currentEpoch(
+        IVaultV2Extended vault
+    ) public view returns (uint256) {
         uint256 len = vault.getEpochsLength();
         if (len > 0) {
             for (uint256 i = len - 1; i >= 0; i--) {
@@ -112,7 +117,9 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
      * @notice Is next epoch purchasable.
      * @param marketId Market Id
      */
-    function isNextEpochPurchasable(uint256 marketId) external view returns (bool) {
+    function isNextEpochPurchasable(
+        uint256 marketId
+    ) external view returns (bool) {
         address[2] memory vaults = vaultFactory.getVaults(marketId);
         IVaultV2Extended vault = IVaultV2Extended(vaults[0]);
         uint256 id = nextEpoch(vault);
@@ -124,17 +131,22 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
      * @notice Pending payouts.
      * @param marketId Market Id
      */
-    function pendingPayouts(uint256 marketId) external view returns (uint256 pending) {
+    // NOTE: Returns the payouts on both side of the markets
+    function pendingPayouts(
+        uint256 marketId
+    ) external view returns (uint256 pending) {
         address[2] memory vaults = vaultFactory.getVaults(marketId);
         uint256[] memory epochs = vaultFactory.getEpochsByMarketId(marketId);
 
         IVaultV2Extended premium = IVaultV2Extended(vaults[0]);
         IVaultV2Extended collateral = IVaultV2Extended(vaults[1]);
 
-        for (uint256 i = nextEpochIndexToClaim[marketId]; i < epochs.length; i++) {
-            (, uint40 epochEnd, ) = premium.getEpochConfig(
-                epochs[i]
-            );
+        for (
+            uint256 i = nextEpochIndexToClaim[msg.sender][marketId];
+            i < epochs.length;
+            i++
+        ) {
+            (, uint40 epochEnd, ) = premium.getEpochConfig(epochs[i]);
             if (
                 block.timestamp <= epochEnd ||
                 !premium.epochResolved(epochs[i]) ||
@@ -144,9 +156,17 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
             }
 
             uint256 premiumShares = premium.balanceOf(msg.sender, epochs[i]);
-            uint256 collateralShares = collateral.balanceOf(msg.sender, epochs[i]);
-            pending += premium.previewWithdraw(epochs[i], premiumShares);
-            pending += collateral.previewWithdraw(epochs[i], collateralShares);
+            uint256 collateralShares = collateral.balanceOf(
+                msg.sender,
+                epochs[i]
+            );
+            if (premiumShares > 0)
+                pending += premium.previewWithdraw(epochs[i], premiumShares);
+            if (collateralShares > 0)
+                pending += collateral.previewWithdraw(
+                    epochs[i],
+                    collateralShares
+                );
         }
     }
 
@@ -172,15 +192,31 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
         uint256 amountPremium,
         uint256 amountCollateral
     ) external {
-        (,,address underlyingAsset) = vaultFactory.marketIdInfo(marketId);
+        (, , address underlyingAsset) = vaultFactory.marketIdInfo(marketId);
         address[2] memory vaults = vaultFactory.getVaults(marketId);
-        IERC20(underlyingAsset).safeTransferFrom(msg.sender, address(this), amountPremium + amountCollateral);
-        IERC20(underlyingAsset).safeApprove(vaults[0], amountPremium);
-        IERC20(underlyingAsset).safeApprove(vaults[1], amountCollateral);
+        IERC20(underlyingAsset).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amountPremium + amountCollateral
+        );
 
         uint256 nextEpochId = nextEpoch(IVaultV2Extended(vaults[0]));
-        IVaultV2Extended(vaults[0]).deposit(nextEpochId, amountPremium, msg.sender);
-        IVaultV2Extended(vaults[1]).deposit(nextEpochId, amountCollateral, msg.sender);
+        if (amountPremium > 0) {
+            IERC20(underlyingAsset).safeApprove(vaults[0], amountPremium);
+            IVaultV2Extended(vaults[0]).deposit(
+                nextEpochId,
+                amountPremium,
+                msg.sender
+            );
+        }
+        if (amountCollateral > 0) {
+            IERC20(underlyingAsset).safeApprove(vaults[1], amountCollateral);
+            IVaultV2Extended(vaults[1]).deposit(
+                nextEpochId,
+                amountCollateral,
+                msg.sender
+            );
+        }
     }
 
     /**
@@ -194,11 +230,9 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
         IVaultV2Extended premium = IVaultV2Extended(vaults[0]);
         IVaultV2Extended collateral = IVaultV2Extended(vaults[1]);
 
-        uint256 i = nextEpochIndexToClaim[marketId];
+        uint256 i = nextEpochIndexToClaim[msg.sender][marketId];
         for (; i < epochs.length; i++) {
-            (, uint40 epochEnd, ) = premium.getEpochConfig(
-                epochs[i]
-            );
+            (, uint40 epochEnd, ) = premium.getEpochConfig(epochs[i]);
             if (
                 block.timestamp <= epochEnd ||
                 !premium.epochResolved(epochs[i]) ||
@@ -216,7 +250,10 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
                     msg.sender
                 );
             }
-            uint256 collateralShares = collateral.balanceOf(msg.sender, epochs[i]);
+            uint256 collateralShares = collateral.balanceOf(
+                msg.sender,
+                epochs[i]
+            );
             if (collateralShares > 0) {
                 amount += collateral.withdraw(
                     epochs[i],
@@ -226,6 +263,6 @@ contract Y2KEarthquakeV2InsuranceProvider is IInsuranceProvider {
                 );
             }
         }
-        nextEpochIndexToClaim[marketId] = i;
+        nextEpochIndexToClaim[msg.sender][marketId] = i;
     }
 }

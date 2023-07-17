@@ -20,6 +20,7 @@ interface IVaultFactoryCustom {
 /// @title Insurance Provider for Y2k Earthquake v1
 /// @author Y2K Finance
 /// @dev All function calls are currently implemented without side effects
+// TODO: Could this be a library instead of a contract? As the only state vars used is nextEpochIndexToClaim which could be moved to the selfInsuredVault?
 contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
     using SafeERC20 for IERC20;
 
@@ -29,7 +30,8 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
     IVaultFactory public immutable vaultFactory;
 
     /// @notice Last claimed epoch index; Market Id => Epoch Index
-    mapping(uint256 => uint256) public nextEpochIndexToClaim;
+    mapping(address => mapping(uint256 => uint256))
+        public nextEpochIndexToClaim;
 
     /*//////////////////////////////////////////////////////////////
                                 CONSTRUCTOR
@@ -67,7 +69,9 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
      * @notice Returns vault addresses.
      * @param marketId Market Id
      */
-    function getVaults(uint256 marketId) public view returns (address[2] memory vaults) {
+    function getVaults(
+        uint256 marketId
+    ) public view returns (address[2] memory vaults) {
         vaults[0] = vaultFactory.indexVaults(marketId, 0);
         vaults[1] = vaultFactory.indexVaults(marketId, 1);
     }
@@ -118,7 +122,9 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
      * @notice Is next epoch purchasable.
      * @param marketId Market Id
      */
-    function isNextEpochPurchasable(uint256 marketId) external view returns (bool) {
+    function isNextEpochPurchasable(
+        uint256 marketId
+    ) external view returns (bool) {
         address[2] memory vaults = getVaults(marketId);
         IVault vault = IVault(vaults[0]);
         uint256 id = nextEpoch(vault);
@@ -129,14 +135,21 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
      * @notice Pending payouts.
      * @param marketId Market Id
      */
-    function pendingPayouts(uint256 marketId) external view returns (uint256 pending) {
+    // NOTE: Returns the payouts on both side of the markets - don't we want to filter the query depending on shares instead of calling both times?
+    function pendingPayouts(
+        uint256 marketId
+    ) external view returns (uint256 pending) {
         address[2] memory vaults = getVaults(marketId);
 
         IVault premium = IVault(vaults[0]);
         IVault collateral = IVault(vaults[1]);
 
         uint256 len = premium.epochsLength();
-        for (uint256 i = nextEpochIndexToClaim[marketId]; i < len; i++) {
+        for (
+            uint256 i = nextEpochIndexToClaim[msg.sender][marketId];
+            i < len;
+            i++
+        ) {
             uint256 epochId = premium.epochs(i);
             if (
                 block.timestamp <= epochId ||
@@ -146,10 +159,21 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
                 break;
             }
 
-            uint256 premiumShares = IERC1155(address(premium)).balanceOf(msg.sender, epochId);
-            uint256 collateralShares = IERC1155(address(collateral)).balanceOf(msg.sender, epochId);
-            pending += premium.previewWithdraw(epochId, premiumShares);
-            pending += collateral.previewWithdraw(epochId, collateralShares);
+            uint256 premiumShares = IERC1155(address(premium)).balanceOf(
+                msg.sender,
+                epochId
+            );
+            uint256 collateralShares = IERC1155(address(collateral)).balanceOf(
+                msg.sender,
+                epochId
+            );
+            if (premiumShares > 0)
+                pending += premium.previewWithdraw(epochId, premiumShares);
+            if (collateralShares > 0)
+                pending += collateral.previewWithdraw(
+                    epochId,
+                    collateralShares
+                );
         }
     }
 
@@ -176,13 +200,25 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
         uint256 amountCollateral
     ) external {
         address[2] memory vaults = getVaults(marketId);
-        IERC20(WETH).safeTransferFrom(msg.sender, address(this), amountPremium + amountCollateral);
-        IERC20(WETH).safeApprove(vaults[0], amountPremium);
-        IERC20(WETH).safeApprove(vaults[1], amountCollateral);
-
+        IERC20(WETH).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amountPremium + amountCollateral
+        );
+        // NOTE: If there are instances where only one side of the vault is deposited then this logic is spending gas for no reason
         uint256 nextEpochId = nextEpoch(IVault(vaults[0]));
-        IVault(vaults[0]).deposit(nextEpochId, amountPremium, msg.sender);
-        IVault(vaults[1]).deposit(nextEpochId, amountCollateral, msg.sender);
+        if (amountPremium > 0) {
+            IERC20(WETH).safeApprove(vaults[0], amountPremium);
+            IVault(vaults[0]).deposit(nextEpochId, amountPremium, msg.sender);
+        }
+        if (amountCollateral > 0) {
+            IERC20(WETH).safeApprove(vaults[1], amountCollateral);
+            IVault(vaults[1]).deposit(
+                nextEpochId,
+                amountCollateral,
+                msg.sender
+            );
+        }
     }
 
     /**
@@ -195,7 +231,8 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
         IVault premium = IVault(vaults[0]);
         IVault collateral = IVault(vaults[1]);
 
-        uint256 i = nextEpochIndexToClaim[marketId];
+        // NOTE: This could be exploited by a malicious caller who iterates the index and the vault wouldn't be able to claim their payout
+        uint256 i = nextEpochIndexToClaim[msg.sender][marketId];
         uint256 len = premium.epochsLength();
         for (; i < len; i++) {
             uint256 epochId = premium.epochs(i);
@@ -207,7 +244,10 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
                 break;
             }
 
-            uint256 premiumShares = IERC1155(address(premium)).balanceOf(msg.sender, epochId);
+            uint256 premiumShares = IERC1155(address(premium)).balanceOf(
+                msg.sender,
+                epochId
+            );
             if (premiumShares > 0) {
                 amount += premium.withdraw(
                     epochId,
@@ -216,7 +256,10 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
                     msg.sender
                 );
             }
-            uint256 collateralShares = IERC1155(address(collateral)).balanceOf(msg.sender, epochId);
+            uint256 collateralShares = IERC1155(address(collateral)).balanceOf(
+                msg.sender,
+                epochId
+            );
             if (collateralShares > 0) {
                 amount += collateral.withdraw(
                     epochId,
@@ -226,6 +269,6 @@ contract Y2KEarthquakeV1InsuranceProvider is IInsuranceProvider {
                 );
             }
         }
-        nextEpochIndexToClaim[marketId] = i;
+        nextEpochIndexToClaim[msg.sender][marketId] = i;
     }
 }

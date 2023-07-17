@@ -23,7 +23,8 @@ abstract contract IYieldSource is Ownable {
 
     function claimAndConvert(
         address outToken,
-        uint256 amount
+        uint256 amount,
+        uint256 amountOutMin
     ) external virtual returns (uint256, uint256);
 
     error AddressZero();

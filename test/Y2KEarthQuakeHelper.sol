@@ -39,7 +39,8 @@ contract Y2KEarthQuakeHelper is Helper {
     Y2KEarthquakeCarouselInsuranceProvider public carouselInsuranceProvider;
 
     // carousel data
-    address emissionsToken = address(new MintableToken("Emissions Token", "EMT"));
+    address emissionsToken =
+        address(new MintableToken("Emissions Token", "EMT"));
     uint256 relayerFee = 2 gwei;
     uint256 depositFee = 50;
 

@@ -38,7 +38,10 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
 
         // prepare assets
         vm.startPrank(RICH_FSGLP);
-        IERC20(StakedGLP_TOKEN).transfer(USER, IERC20(StakedGLP_TOKEN).balanceOf(RICH_FSGLP));
+        IERC20(StakedGLP_TOKEN).transfer(
+            USER,
+            IERC20(StakedGLP_TOKEN).balanceOf(RICH_FSGLP)
+        );
         vm.stopPrank();
     }
 
@@ -90,7 +93,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
         uint256 SIV_WETH_AMOUNT = IYieldSource(yieldSource).pendingYieldInToken(
             WETH
         );
-        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch();
+        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch(SLIPPAGE);
 
         // none left at siv
         assertEq(IERC20(WETH).balanceOf(siv), 0);
@@ -209,7 +212,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
         uint256 SIV_WETH_AMOUNT = IYieldSource(yieldSource).pendingYieldInToken(
             WETH
         );
-        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch();
+        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch(SLIPPAGE);
 
         // none left at siv
         assertEq(IERC20(WETH).balanceOf(siv), 0);
@@ -280,10 +283,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
             address collateral,
             uint256 marketId,
             uint256 epochId
-        ) = Y2KEarthQuakeHelper.createEndEpochMarketCarousel(
-                begin,
-                end
-            );
+        ) = Y2KEarthQuakeHelper.createEndEpochMarketCarousel(begin, end);
 
         SelfInsuredVault(siv).addMarket(
             address(carouselInsuranceProvider),
@@ -320,7 +320,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
         uint256 SIV_WETH_AMOUNT = IYieldSource(yieldSource).pendingYieldInToken(
             WETH
         );
-        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch();
+        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch(SLIPPAGE);
 
         // none left at siv
         assertEq(IERC20(WETH).balanceOf(siv), 0);
@@ -440,7 +440,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
         // check farming balance
         uint256 SIV_WETH_AMOUNT1 = IYieldSource(yieldSource)
             .pendingYieldInToken(WETH);
-        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch();
+        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch(SLIPPAGE);
 
         // some left due to rounding
         assertEq(IERC20(WETH).balanceOf(siv) < 2, true);
@@ -524,7 +524,7 @@ contract SIVGLPTest is Y2KEarthQuakeHelper {
         // check farming balance
         uint256 SIV_WETH_AMOUNT2 = IYieldSource(yieldSource)
             .pendingYieldInToken(WETH);
-        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch();
+        SelfInsuredVault(siv).purchaseInsuranceForNextEpoch(SLIPPAGE);
 
         // check deposit balances
         assertEq(

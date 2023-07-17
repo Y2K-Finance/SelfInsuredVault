@@ -47,12 +47,13 @@ contract AddMarkets is HelperConfig {
 contract Purchase is HelperConfig {
     function run() public {
         address sivAddress = getSiv();
+        uint256 slippage = 500; // 5%
         console.log("SIV", sivAddress);
         SelfInsuredVault siv = SelfInsuredVault(sivAddress);
 
         vm.startBroadcast();
 
-        siv.purchaseInsuranceForNextEpoch();
+        siv.purchaseInsuranceForNextEpoch(slippage);
 
         vm.stopBroadcast();
     }
